@@ -23,7 +23,7 @@ class RedisListener(private val pub: Jedis, private val plugin: MythicAuthServic
     private fun getUUIDFromUsername(username: String) =
         UUID.nameUUIDFromBytes("OfflinePlayer:$username".toByteArray(StandardCharsets.UTF_8))
 
-    override fun onMessage(channel: String?, message: String?) {
+    override fun onPMessage(pattern: String?, channel: String?, message: String?) {
         val permission = channel?.substring("mythicauthservice:request:".length)
         if (message.isNullOrEmpty()) {
             return plugin.logger.warning("Received empty malformed message over Redis $channel")

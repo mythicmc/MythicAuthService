@@ -50,7 +50,7 @@ class MythicAuthService : JavaPlugin() {
     }
 
     private fun closeRedis() {
-        redisListener?.unsubscribe()
+        redisListener?.punsubscribe()
         redisListener = null
         jedisPub?.close()
         jedisPub = null
@@ -69,9 +69,9 @@ class MythicAuthService : JavaPlugin() {
         val sub = Jedis(config.getString("redis") ?: "redis://localhost:6379")
         val listener = RedisListener(pub, this)
 
-        // Create actor.
+        // Create read actor.
         server.scheduler.runTaskAsynchronously(this) { _ ->
-            sub.subscribe(listener, "mythicauthservice:request:*") // FIXME: This works?
+            sub.psubscribe(listener, "mythicauthservice:request:*")
         }
 
         // Set global properties.
