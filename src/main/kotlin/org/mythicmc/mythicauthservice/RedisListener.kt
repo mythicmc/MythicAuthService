@@ -10,7 +10,8 @@ import redis.clients.jedis.Jedis
 import redis.clients.jedis.JedisPubSub
 import java.io.StringReader
 import java.nio.charset.StandardCharsets
-import java.util.*
+import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.logging.Level
 
 class RedisListener(private val pub: Jedis, private val plugin: MythicAuthService) : JedisPubSub() {
@@ -22,6 +23,16 @@ class RedisListener(private val pub: Jedis, private val plugin: MythicAuthServic
 
     private fun getUUIDFromUsername(username: String) =
         UUID.nameUUIDFromBytes("OfflinePlayer:$username".toByteArray(StandardCharsets.UTF_8))
+
+    private fun checkPermission(username: String, permission: String): CompletableFuture<Tristate> {
+        val user = LuckPermsProvider.get().userManager.getUser(username)
+        return if (user == null) {
+            LuckPermsProvider.get().userManager
+                .loadUser(getUUIDFromUsername(username), username)
+                .thenApply { it.cachedData.permissionData.checkPermission(permission) }
+        } else CompletableFuture.completedFuture(
+            user.cachedData.permissionData.checkPermission(permission))
+    }
 
     override fun onPMessage(pattern: String?, channel: String?, message: String?) {
         val permission = channel?.substring("mythicauthservice:request:".length)
@@ -46,13 +57,8 @@ class RedisListener(private val pub: Jedis, private val plugin: MythicAuthServic
         // Check if username has permission.
         try {
             // TODO: Asynchronous in future? pub isn't async-safe though.
-            val user = LuckPermsProvider.get().userManager.getUser(username)
-                ?: LuckPermsProvider.get().userManager
-                    .loadUser(getUUIDFromUsername(username), username)
-                    .get()
-            val permissionData = user.cachedData.permissionData
             // If the user doesn't have permission, respond with false.
-            if (permissionData.checkPermission("mythicpanel.use") != Tristate.TRUE) {
+            if (checkPermission(username, permission).get() != Tristate.TRUE) {
                 respond(message, permission, false)
                 return
             }
