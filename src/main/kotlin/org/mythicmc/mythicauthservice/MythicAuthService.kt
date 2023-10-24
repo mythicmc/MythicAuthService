@@ -4,6 +4,8 @@ import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.plugin.java.JavaPlugin
 import redis.clients.jedis.Jedis
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import java.util.logging.Level
 
 class MythicAuthService : JavaPlugin() {
@@ -16,6 +18,8 @@ class MythicAuthService : JavaPlugin() {
         var jedisSub: Jedis? = null
             private set
         var redisListener: RedisListener? = null
+            private set
+        var messageWriteQueue: LinkedBlockingQueue<Pair<String, String>>? = null
             private set
     }
 
@@ -50,6 +54,8 @@ class MythicAuthService : JavaPlugin() {
     }
 
     private fun closeRedis() {
+        messageWriteQueue?.clear()
+        messageWriteQueue = null
         redisListener?.punsubscribe()
         redisListener = null
         jedisPub?.close()
@@ -65,18 +71,31 @@ class MythicAuthService : JavaPlugin() {
 
         // Destroy existing pool if it exists and create a new one.
         closeRedis()
+        val writeQueue = LinkedBlockingQueue<Pair<String, String>>()
         val pub = Jedis(config.getString("redis") ?: "redis://localhost:6379")
         val sub = Jedis(config.getString("redis") ?: "redis://localhost:6379")
-        val listener = RedisListener(pub, this)
+        val listener = RedisListener(this)
 
         // Create read actor.
         server.scheduler.runTaskAsynchronously(this) { _ ->
             sub.psubscribe(listener, "mythicauthservice:request:*")
         }
 
+        // Create write actor.
+        server.scheduler.runTaskAsynchronously(this) { _ ->
+            while (true) {
+                if (writeQueue != messageWriteQueue)
+                    return@runTaskAsynchronously
+                val message = writeQueue.poll(1, TimeUnit.SECONDS) ?: continue
+                if (pub.isConnected)
+                    pub.publish(message.first, message.second)
+            }
+        }
+
         // Set global properties.
         jedisPub = pub
         jedisSub = sub
         redisListener = listener
+        messageWriteQueue = writeQueue
     }
 }

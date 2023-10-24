@@ -6,7 +6,6 @@ import io.github.fridgey.telogin.password.PasswordManager
 import net.luckperms.api.LuckPermsProvider
 import net.luckperms.api.util.Tristate
 import org.bukkit.configuration.file.YamlConfiguration
-import redis.clients.jedis.Jedis
 import redis.clients.jedis.JedisPubSub
 import java.io.StringReader
 import java.nio.charset.StandardCharsets
@@ -14,12 +13,14 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.logging.Level
 
-class RedisListener(private val pub: Jedis, private val plugin: MythicAuthService) : JedisPubSub() {
+class RedisListener(private val plugin: MythicAuthService) : JedisPubSub() {
     private val gson = Gson()
 
-    private fun respond(request: String, permission: String, authorised: Boolean) = pub.publish(
-        "mythicauthservice:response:$permission",
-        gson.toJson(AuthResponse(request, authorised)))
+    private fun respond(request: String, permission: String, authorised: Boolean) =
+        MythicAuthService.messageWriteQueue?.add(Pair(
+            "mythicauthservice:response:$permission",
+            gson.toJson(AuthResponse(request, authorised))))
+            ?: plugin.logger.warning("Dropped response to request $request since channel closed!")
 
     private fun getUUIDFromUsername(username: String) =
         UUID.nameUUIDFromBytes("OfflinePlayer:$username".toByteArray(StandardCharsets.UTF_8))
@@ -55,26 +56,27 @@ class RedisListener(private val pub: Jedis, private val plugin: MythicAuthServic
         }
 
         // Check if username has permission.
-        try {
-            // TODO: Asynchronous in future? pub isn't async-safe though.
-            // If the user doesn't have permission, respond with false.
-            if (checkPermission(username, permission).get() != Tristate.TRUE) {
+        checkPermission(username, permission).handle { value, err ->
+            if (err != null) {
+                plugin.logger.log(Level.SEVERE, "Error occurred when checking LuckPerms!", err)
                 respond(message, permission, false)
-                return
+                return@handle
             }
-        } catch (e: Exception) {
-            respond(message, permission, false)
-            return plugin.logger.log(Level.SEVERE, "Error occurred when checking LuckPerms!", e)
-        }
-        // If password is null, then respond with true (as the user's authority is being queried).
-        // If it's empty, then put some cautionary security in case there is no client validation.
-        if (password.isNullOrEmpty()) {
-            respond(message, permission, password == null)
-            return
-        }
-        // Check if password is correct, and respond in callback.
-        TELoginPlugin.getInstance().dbManager.getPassword(username) {
-            respond(message, permission, PasswordManager.checkPassword(username, password, it))
+            // If the user doesn't have permission, respond with false.
+            if (value != Tristate.TRUE) {
+                respond(message, permission, false)
+                return@handle
+            }
+            // If password is null, then respond with true (as the user's authority is being queried).
+            // If it's empty, then put some cautionary security in case there is no client validation.
+            if (password.isNullOrEmpty()) {
+                respond(message, permission, password == null)
+                return@handle
+            }
+            // Check if password is correct, and respond in callback.
+            TELoginPlugin.getInstance().dbManager.getPassword(username) {
+                respond(message, permission, PasswordManager.checkPassword(username, password, it))
+            }
         }
     }
 }
