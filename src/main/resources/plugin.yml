@@ -1,0 +1,19 @@
+name: MythicAuthService
+version: 1.0.0-SNAPSHOT
+description: Bukkit plugin which provides a Redis API to validate credentials with TELogin.
+author: retrixe
+api-version: 1.18
+database: true
+main: org.mythicmc.mythicauthservice.MythicAuthService
+depend: [TELogin, LuckPerms]
+
+permissions:
+  mythicauthservice.reload:
+    default: op
+    description: Allows reloading the MythicAuthService plugin.
+
+commands:
+  mythicauthservice:
+    description: Command to reload the MythicAuthService plugin.
+    permission: mythicauthservice.reload
+    usage: /mythicauthservice reload
