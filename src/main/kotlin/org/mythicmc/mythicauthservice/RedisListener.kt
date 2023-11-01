@@ -74,8 +74,11 @@ class RedisListener(private val plugin: MythicAuthService) : JedisPubSub() {
                 return@handle
             }
             // Check if password is correct, and respond in callback.
-            TELoginPlugin.getInstance().dbManager.getPassword(username) {
-                respond(message, permission, PasswordManager.checkPassword(username, password, it))
+            TELoginPlugin.getInstance().dbManager.getAccount(username, false) {
+                val authorised = if (it?.passedTest() != true) false else
+                    PasswordManager.checkPassword(username, password, it.password)
+                // FIXME: Check for bans as well...
+                respond(message, permission, authorised)
             }
         }
     }
