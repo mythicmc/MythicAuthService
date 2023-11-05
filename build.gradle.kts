@@ -20,7 +20,7 @@ repositories {
 
 dependencies {
     implementation("redis.clients:jedis:4.3.1")
-    // TELogin
+    // TELogin and DbShare
     compileOnly(fileTree(mapOf("dir" to "lib", "include" to listOf("*.jar"))))
     compileOnly("io.papermc.paper:paper-api:1.18.2-R0.1-SNAPSHOT")
     compileOnly("net.luckperms:api:5.4")

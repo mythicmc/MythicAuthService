@@ -1,5 +1,6 @@
 package org.mythicmc.mythicauthservice
 
+import com.gmail.tracebachi.DbShare.DbShare
 import com.google.gson.Gson
 import io.github.fridgey.telogin.TELoginPlugin
 import io.github.fridgey.telogin.password.PasswordManager
@@ -74,11 +75,25 @@ class RedisListener(private val plugin: MythicAuthService) : JedisPubSub() {
                 return@handle
             }
             // Check if password is correct, and respond in callback.
-            TELoginPlugin.getInstance().dbManager.getAccount(username, false) {
-                val authorised = if (it?.passedTest() != true) false else
-                    PasswordManager.checkPassword(username, password, it.password)
-                // FIXME: Check for bans as well...
-                respond(message, permission, authorised)
+            TELoginPlugin.getInstance().dbManager.getAccount(username, false) { account ->
+                if (
+                    account?.passedTest() != true ||
+                    !PasswordManager.checkPassword(username, password, account.password)
+                    ) {
+                    respond(message, permission, false)
+                        return@getAccount
+                }
+                val dataSource = plugin.config.getString("dbshareDataSource") ?: "MainDB"
+                plugin.server.scheduler.runTaskAsynchronously(plugin) { _ ->
+                    DbShare.instance().getDataSource(dataSource).connection.use { conn ->
+                        val querySql = "SELECT name FROM deltabans_bans WHERE name = ?;"
+                        conn.prepareStatement(querySql).use { stmt -> stmt.setString(1, username)
+                            stmt.executeQuery().use { resultSet ->
+                                respond(message, permission, !resultSet.next())
+                            }
+                        }
+                    }
+                }
             }
         }
     }

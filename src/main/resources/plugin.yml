@@ -5,7 +5,7 @@ author: retrixe
 api-version: 1.18
 database: true
 main: org.mythicmc.mythicauthservice.MythicAuthService
-depend: [TELogin, LuckPerms]
+depend: [TELogin, LuckPerms, DbShare]
 
 permissions:
   mythicauthservice.reload:
