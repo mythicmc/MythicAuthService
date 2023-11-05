@@ -1,5 +1,5 @@
 name: MythicAuthService
-version: 1.0.0
+version: 1.0.1
 description: Bukkit plugin which provides a Redis API to validate credentials with TELogin.
 author: retrixe
 api-version: 1.18
