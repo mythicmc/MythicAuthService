@@ -36,7 +36,13 @@ class RedisListener(private val plugin: MythicAuthService) : JedisPubSub() {
             user.cachedData.permissionData.checkPermission(permission))
     }
 
-    override fun onPMessage(pattern: String?, channel: String?, message: String?) {
+    override fun onPMessage(pattern: String?, channel: String?, message: String?) = try {
+        this.onMessage(channel, message)
+    } catch (e: Exception) {
+        plugin.logger.log(Level.SEVERE, "An error occurred in the listener!", e)
+    }
+
+    override fun onMessage(channel: String?, message: String?) {
         val permission = channel?.substring("mythicauthservice:request:".length)
         if (message.isNullOrEmpty()) {
             return plugin.logger.warning("Received empty malformed message over Redis $channel")
