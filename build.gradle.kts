@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "org.mythicmc"
-version = "1.0.1"
+version = "1.0.2"
 
 description = "Bukkit plugin which provides a Redis API to validate credentials with TELogin."
 
