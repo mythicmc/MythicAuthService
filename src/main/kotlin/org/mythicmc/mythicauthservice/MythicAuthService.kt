@@ -12,13 +12,11 @@ class MythicAuthService : JavaPlugin() {
     companion object {
         lateinit var plugin: MythicAuthService
             private set
-
-        lateinit var jedisPool: JedisPool
-            private set
-        lateinit var redisListener: RedisListener
-            private set
-        val messageWriteQueue = LinkedBlockingDeque<Pair<String, String>>()
     }
+
+    private lateinit var jedisPool: JedisPool
+    private lateinit var redisListener: RedisListener
+    val writeQueue = LinkedBlockingDeque<Pair<String, String>>()
 
     override fun onLoad() {
         plugin = this
@@ -86,16 +84,16 @@ class MythicAuthService : JavaPlugin() {
         // Create write actor.
         server.scheduler.runTaskAsynchronously(this) { _ ->
             while (!pool.isClosed) {
-                val message = messageWriteQueue.poll(1, TimeUnit.SECONDS) ?: continue
+                val message = writeQueue.poll(1, TimeUnit.SECONDS) ?: continue
                 if (pool.isClosed) // Re-send with new actor at first priority.
-                    return@runTaskAsynchronously messageWriteQueue.addFirst(message)
+                    return@runTaskAsynchronously writeQueue.addFirst(message)
 
                 try {
                     pool.resource.use { it.publish(message.first, message.second) }
                 } catch (e: Exception) {
                     logger.log(Level.SEVERE,
                         "Exception sending message over Redis! Re-sending in 5s...", e)
-                    messageWriteQueue.addFirst(message)
+                    writeQueue.addFirst(message)
                     Thread.sleep(5000L)
                 }
             }

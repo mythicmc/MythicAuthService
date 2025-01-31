@@ -17,11 +17,10 @@ import java.util.logging.Level
 class RedisListener(private val plugin: MythicAuthService) : JedisPubSub() {
     private val gson = Gson()
 
-    private fun respond(request: String, permission: String, authorised: Boolean) =
-        MythicAuthService.messageWriteQueue?.add(Pair(
-            "mythicauthservice:response:$permission",
-            gson.toJson(AuthResponse(request, authorised))))
-            ?: plugin.logger.warning("Dropped response to request $request since channel closed!")
+    private fun respond(request: String, permission: String, authorised: Boolean) {
+        val json = gson.toJson(AuthResponse(request, authorised))
+        plugin.writeQueue.add(Pair("mythicauthservice:response:$permission", json))
+    }
 
     private fun getUUIDFromUsername(username: String) =
         UUID.nameUUIDFromBytes("OfflinePlayer:$username".toByteArray(StandardCharsets.UTF_8))
@@ -66,29 +65,24 @@ class RedisListener(private val plugin: MythicAuthService) : JedisPubSub() {
         checkPermission(username, permission).handle { value, err ->
             if (err != null) {
                 plugin.logger.log(Level.SEVERE, "Error occurred when checking LuckPerms!", err)
-                respond(message, permission, false)
-                return@handle
+                return@handle respond(message, permission, false)
             }
             // If the user doesn't have permission, respond with false.
-            if (value != Tristate.TRUE) {
-                respond(message, permission, false)
-                return@handle
-            }
+            if (value != Tristate.TRUE)
+                return@handle respond(message, permission, false)
+
             // If password is null, then respond with true (as the user's authority is being queried).
             // If it's empty, then put some cautionary security in case there is no client validation.
-            if (password.isNullOrEmpty()) {
-                respond(message, permission, password == null)
-                return@handle
-            }
+            if (password.isNullOrEmpty())
+                return@handle respond(message, permission, password == null)
+
             // Check if password is correct, and respond in callback.
             TELoginPlugin.getInstance().dbManager.getAccount(username, false) { account ->
-                if (
-                    account?.passedTest() != true ||
-                    !PasswordManager.checkPassword(username, password, account.password)
-                    ) {
-                    respond(message, permission, false)
-                        return@getAccount
-                }
+                val passedTest = account?.passedTest() == true
+                val pwCorrect = PasswordManager.checkPassword(username, password, account.password)
+                if (!passedTest || !pwCorrect)
+                    return@getAccount respond(message, permission, false)
+
                 val dataSource = plugin.config.getString("dbshareDataSource") ?: "MainDB"
                 plugin.server.scheduler.runTaskAsynchronously(plugin) { _ ->
                     DbShare.instance().getDataSource(dataSource).connection.use { conn ->
