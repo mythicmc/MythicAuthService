@@ -1,10 +1,9 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    kotlin("jvm") version "1.9.10"
-    id("com.github.johnrengelman.shadow") version "8.1.1"
+    kotlin("jvm") version "2.0.10"
+    id("com.gradleup.shadow") version "8.3.0"
 }
 
 group = "org.mythicmc"
@@ -19,21 +18,22 @@ repositories {
 }
 
 dependencies {
-    implementation("redis.clients:jedis:4.3.1")
+    implementation("redis.clients:jedis:5.2.0")
+    compileOnly("net.luckperms:api:5.4")
+    compileOnly("io.papermc.paper:paper-api:1.18.2-R0.1-SNAPSHOT")
     // TELogin and DbShare
     compileOnly(fileTree(mapOf("dir" to "lib", "include" to listOf("*.jar"))))
-    compileOnly("io.papermc.paper:paper-api:1.18.2-R0.1-SNAPSHOT")
-    compileOnly("net.luckperms:api:5.4")
 }
 
 java {
     toolchain.languageVersion.set(JavaLanguageVersion.of(17))
 }
 
-tasks.withType<KotlinCompile> {
-    kotlinOptions.jvmTarget = "17"
-}
-
 tasks.withType<ShadowJar> {
+    minimize()
+    archiveClassifier.set("")
     relocate("kotlin", "org.mythicmc.mythicauthservice.kotlin")
+    // Relocate Jedis and its dependencies
+    relocationPrefix = "org.mythicmc.mythicauthservice.shadow"
+    isEnableRelocation = true
 }
