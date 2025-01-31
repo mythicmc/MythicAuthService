@@ -3,8 +3,8 @@ package org.mythicmc.mythicauthservice
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.plugin.java.JavaPlugin
-import redis.clients.jedis.Jedis
-import java.util.concurrent.LinkedBlockingQueue
+import redis.clients.jedis.JedisPool
+import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
 import java.util.logging.Level
 
@@ -13,14 +13,11 @@ class MythicAuthService : JavaPlugin() {
         lateinit var plugin: MythicAuthService
             private set
 
-        var jedisPub: Jedis? = null
+        lateinit var jedisPool: JedisPool
             private set
-        var jedisSub: Jedis? = null
+        lateinit var redisListener: RedisListener
             private set
-        var redisListener: RedisListener? = null
-            private set
-        var messageWriteQueue: LinkedBlockingQueue<Pair<String, String>>? = null
-            private set
+        val messageWriteQueue = LinkedBlockingDeque<Pair<String, String>>()
     }
 
     override fun onLoad() {
@@ -28,7 +25,9 @@ class MythicAuthService : JavaPlugin() {
     }
 
     override fun onEnable() {
-        reload()
+        saveDefaultConfig()
+        reloadConfig()
+        initialiseRedis()
 
         getCommand("mythicauthservice")?.setTabCompleter { _, _, _, _ -> listOf("reload") }
         getCommand("mythicauthservice")?.setExecutor { sender, _, _, args ->
@@ -54,48 +53,52 @@ class MythicAuthService : JavaPlugin() {
     }
 
     private fun closeRedis() {
-        messageWriteQueue?.clear()
-        messageWriteQueue = null
-        redisListener?.punsubscribe()
-        redisListener = null
-        jedisPub?.close()
-        jedisPub = null
-        jedisSub?.close()
-        jedisSub = null
+        redisListener.punsubscribe()
+        jedisPool.close()
     }
 
     private fun reload() {
-        // Save config.
         saveDefaultConfig()
         reloadConfig()
-
-        // Destroy existing pool if it exists and create a new one.
         closeRedis()
-        val writeQueue = LinkedBlockingQueue<Pair<String, String>>()
-        val pub = Jedis(config.getString("redis") ?: "redis://localhost:6379")
-        val sub = Jedis(config.getString("redis") ?: "redis://localhost:6379")
+        initialiseRedis()
+    }
+
+    private fun initialiseRedis() {
+        val pool = JedisPool(config.getString("redis") ?: "redis://localhost:6379")
+        jedisPool = pool
         val listener = RedisListener(this)
+        redisListener = listener
 
         // Create read actor.
         server.scheduler.runTaskAsynchronously(this) { _ ->
-            sub.psubscribe(listener, "mythicauthservice:request:*")
+            while (!pool.isClosed) {
+                try {
+                    pool.resource.use { it.psubscribe(listener, "mythicauthservice:request:*") }
+                } catch (e: Exception) {
+                    logger.log(Level.SEVERE,
+                        "Exception reading from Redis! Re-subscribing in 5s...", e)
+                    Thread.sleep(5000L)
+                }
+            }
         }
 
         // Create write actor.
         server.scheduler.runTaskAsynchronously(this) { _ ->
-            while (true) {
-                if (writeQueue != messageWriteQueue)
-                    return@runTaskAsynchronously
-                val message = writeQueue.poll(1, TimeUnit.SECONDS) ?: continue
-                if (pub.isConnected)
-                    pub.publish(message.first, message.second)
+            while (!pool.isClosed) {
+                val message = messageWriteQueue.poll(1, TimeUnit.SECONDS) ?: continue
+                if (pool.isClosed) // Re-send with new actor at first priority.
+                    return@runTaskAsynchronously messageWriteQueue.addFirst(message)
+
+                try {
+                    pool.resource.use { it.publish(message.first, message.second) }
+                } catch (e: Exception) {
+                    logger.log(Level.SEVERE,
+                        "Exception sending message over Redis! Re-sending in 5s...", e)
+                    messageWriteQueue.addFirst(message)
+                    Thread.sleep(5000L)
+                }
             }
         }
-
-        // Set global properties.
-        jedisPub = pub
-        jedisSub = sub
-        redisListener = listener
-        messageWriteQueue = writeQueue
     }
 }
